@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rompecabezas Interactivo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <style>
+    .piece {
+      touch-action: none;
+      user-select: none;
+      cursor: grab;
+    }
+    .piece:active {
+      cursor: grabbing;
+    }
+    .piece.placed {
+      cursor: default;
+      box-shadow: none !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col items-center p-4">
+  
+  <!-- Header -->
+  <header class="text-center mb-6 max-w-2xl">
+    <h1 class="text-3xl font-extrabold tracking-tight text-indigo-900">Rompecabezas</h1>
+    <p class="text-sm text-slate-600 mt-1">Elige una imagen o sube la tuya, arrastra las piezas y completa el tablero.</p>
+  </header>
+
+  <!-- Panel de Controles -->
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 w-full max-w-4xl flex flex-wrap gap-4 items-center justify-between mb-6">
+    <!-- Selección de demo / archivo -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Imagen:</span>
+      <div id="demoGallery" class="flex gap-2"></div>
+      <label class="cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-300 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
+        <span>Subir foto</span>
+        <input type="file" id="fileInput" accept="image/*" class="hidden" />
+      </label>
+    </div>
+
+    <!-- Ajustes: Piezas y Acción -->
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2">
+        <label for="gridSize" class="text-xs font-semibold text-slate-500 uppercase">Piezas:</label>
+        <select id="gridSize" class="border border-slate-300 text-sm rounded-lg px-2 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="2">4 (2x2)</option>
+          <option value="3" selected>9 (3x3)</option>
+          <option value="4">16 (4x4)</option>
+          <option value="5">25 (5x5)</option>
+        </select>
+      </div>
+
+      <button id="btnRestart" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+        Reiniciar
+      </button>
+    </div>
+  </div>
+
+  <!-- Zona de Juego -->
+  <main class="w-full max-w-5xl flex flex-col md:flex-row gap-6 items-start justify-center">
+    
+    <!-- Tablero donde encajan las piezas -->
+    <div class="flex flex-col items-center">
+      <div class="flex items-center justify-between w-full mb-2">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Tablero objetivo</span>
+        <button id="toggleGuide" class="text-xs text-indigo-600 hover:underline">Ocultar guía</button>
+      </div>
+      <div id="boardContainer" class="relative bg-white rounded-xl shadow-inner border-2 border-dashed border-slate-300 overflow-hidden w-[320px] h-[320px] sm:w-[400px] sm:h-[400px]">
+        <!-- Imagen de guía tenue -->
+        <img id="guideImage" class="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none transition-opacity" alt="Guía" />
+        <!-- Contenedor dinámico de casillas -->
+        <div id="boardGrid" class="relative w-full h-full"></div>
+      </div>
+    </div>
+
+    <!-- Mesa con piezas sueltas -->
+    <div class="flex-1 w-full flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Mesa de piezas</span>
+        <span id="piecesCount" class="text-xs text-slate-500">0 / 9 colocadas</span>
+      </div>
+      <div id="piecesTray" class="bg-slate-200/70 border border-slate-300 rounded-xl min-h-[320px] sm:min-h-[400px] p-4 flex flex-wrap content-start gap-2 justify-center overflow-y-auto">
+        <!-- Las piezas se inyectan aquí -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal de Victoria -->
+  <div id="victoryModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center transform scale-95 transition-transform duration-200">
+      <div class="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-black">✓</div>
+      <h2 class="text-xl font-bold text-slate-800 mb-1">¡Buen trabajo!</h2>
+      <p class="text-sm text-slate-600 mb-5">Has armado el rompecabezas a la perfección.</p>
+      <button id="modalPlayAgain" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition shadow">
+        Jugar de nuevo
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // 5 imágenes demo seguras
+    const DEMO_IMAGES = [
+      'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&auto=format&fit=crop&q=80', // León
+      'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=600&auto=format&fit=crop&q=80', // Paisaje lago
+      'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80', // Chip / Tech
+      'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=600&auto=format&fit=crop&q=80', // Pintura abstracta
+      'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?w=600&auto=format&fit=crop&q=80'  // Árboles cenital
+    ];
+
+    let currentImageUrl = DEMO_IMAGES[0];
+    let gridCount = 3;
+    let placedCount = 0;
+    let totalPieces = 9;
+
+    const boardContainer = document.getElementById('boardContainer');
+    const boardGrid = document.getElementById('boardGrid');
+    const piecesTray = document.getElementById('piecesTray');
+    const guideImage = document.getElementById('guideImage');
+    const gridSizeSelect = document.getElementById('gridSize');
+    const demoGallery = document.getElementById('demoGallery');
+    const fileInput = document.getElementById('fileInput');
+    const btnRestart = document.getElementById('btnRestart');
+    const toggleGuide = document.getElementById('toggleGuide');
+    const victoryModal = document.getElementById('victoryModal');
+    const modalPlayAgain = document.getElementById('modalPlayAgain');
+    const piecesCountText = document.getElementById('piecesCount');
+
+    // Inicializar miniaturas demo
+    DEMO_IMAGES.forEach((url, index) => {
+      const img = document.createElement('img');
+      img.src = url;
+      img.className = 'w-9 h-9 object-cover rounded-lg border-2 cursor-pointer transition hover:opacity-80 ' + (index === 0 ? 'border-indigo-600 ring-2 ring-indigo-200' : 'border-transparent');
+      img.addEventListener('click', () => {
+        document.querySelectorAll('#demoGallery img').forEach(el => el.className = 'w-9 h-9 object-cover rounded-lg border-2 border-transparent cursor-pointer hover:opacity-80 transition');
+        img.className = 'w-9 h-9 object-cover rounded-lg border-2 border-indigo-600 ring-2 ring-indigo-200 cursor-pointer transition';
+        currentImageUrl = url;
+        startPuzzle();
+      });
+      demoGallery.appendChild(img);
+    });
+
+    // Subir imagen local
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        currentImageUrl = ev.target.result;
+        document.querySelectorAll('#demoGallery img').forEach(el => el.classList.remove('border-indigo-600', 'ring-2', 'ring-indigo-200'));
+        startPuzzle();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Cambiar dificultad
+    gridSizeSelect.addEventListener('change', (e) => {
+      gridCount = parseInt(e.target.value, 10);
+      startPuzzle();
+    });
+
+    // Toggle de la imagen de fondo
+    toggleGuide.addEventListener('click', () => {
+      if (guideImage.style.display === 'none') {
+        guideImage.style.display = 'block';
+        toggleGuide.textContent = 'Ocultar guía';
+      } else {
+        guideImage.style.display = 'none';
+        toggleGuide.textContent = 'Ver guía';
+      }
+    });
+
+    btnRestart.addEventListener('click', startPuzzle);
+    modalPlayAgain.addEventListener('click', () => {
+      victoryModal.classList.add('hidden');
+      startPuzzle();
+    });
+
+    function startPuzzle() {
+      victoryModal.classList.add('hidden');
+      totalPieces = gridCount * gridCount;
+      placedCount = 0;
+      updatePiecesCounter();
+
+      guideImage.src = currentImageUrl;
+      boardGrid.innerHTML = '';
+      piecesTray.innerHTML = '';
+
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.src = currentImageUrl;
+      img.onload = () => {
+        setupBoardAndPieces(img);
+      };
+    }
+
+    function updatePiecesCounter() {
+      piecesCountText.textContent = `${placedCount} / ${totalPieces} colocadas`;
+    }
+
+    function setupBoardAndPieces(img) {
+      const boardWidth = boardContainer.clientWidth;
+      const boardHeight = boardContainer.clientHeight;
+      const pieceWidth = boardWidth / gridCount;
+      const pieceHeight = boardHeight / gridCount;
+
+      const piecesData = [];
+
+      // Generar casillas y piezas cortadas con Canvas
+      for (let row = 0; row < gridCount; row++) {
+        for (let col = 0; col < gridCount; col++) {
+          const index = row * gridCount + col;
+
+          // Casilla de referencia en el tablero
+          const dropSlot = document.createElement('div');
+          dropSlot.id = `slot-${index}`;
+          dropSlot.className = 'absolute border border-slate-300/40 pointer-events-none box-border';
+          dropSlot.style.width = `${pieceWidth}px`;
+          dropSlot.style.height = `${pieceHeight}px`;
+          dropSlot.style.left = `${col * pieceWidth}px`;
+          dropSlot.style.top = `${row * pieceHeight}px`;
+          boardGrid.appendChild(dropSlot);
+
+          // Crear pieza con Canvas
+          const canvas = document.createElement('canvas');
+          canvas.width = pieceWidth;
+          canvas.height = pieceHeight;
+          const ctx = canvas.getContext('2d');
+
+          const sWidth = img.width / gridCount;
+          const sHeight = img.height / gridCount;
+
+          ctx.drawImage(
+            img,
+            col * sWidth, row * sHeight, sWidth, sHeight,
+            0, 0, pieceWidth, pieceHeight
+          );
+
+          const pieceEl = document.createElement('div');
+          pieceEl.className = 'piece relative shadow-md rounded overflow-hidden border border-slate-300 inline-block bg-white transition-shadow';
+          pieceEl.style.width = `${pieceWidth}px`;
+          pieceEl.style.height = `${pieceHeight}px`;
+          pieceEl.dataset.index = index;
+          pieceEl.dataset.row = row;
+          pieceEl.dataset.col = col;
+
+          canvas.className = 'w-full h-full pointer-events-none';
+          pieceEl.appendChild(canvas);
+
+          enableDrag(pieceEl, pieceWidth, pieceHeight);
+          piecesData.push(pieceEl);
+        }
+      }
+
+      // Barajar y colocar en la mesa
+      piecesData.sort(() => Math.random() - 0.5);
+      piecesData.forEach(p => piecesTray.appendChild(p));
+    }
+
+    // Lógica Drag & Drop (Pointer Events para mouse + touch)
+    function enableDrag(element, pWidth, pHeight) {
+      let isDragging = false;
+      let startX, startY;
+      let initialLeft, initialTop;
+      let originalParent = null;
+
+      element.addEventListener('pointerdown', (e) => {
+        if (element.classList.contains('placed')) return;
+
+        isDragging = true;
+        element.setPointerCapture(e.pointerId);
+        element.style.zIndex = '1000';
+        originalParent = element.parentElement;
+
+        const rect = element.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        // Mover al body temporalmente durante el arrastre libre
+        element.style.position = 'fixed';
+        element.style.left = `${rect.left}px`;
+        element.style.top = `${rect.top}px`;
+        document.body.appendChild(element);
+      });
+
+      element.addEventListener('pointermove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        element.style.left = `${initialLeft + dx}px`;
+        element.style.top = `${initialTop + dy}px`;
+      });
+
+      const handlePointerEnd = (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        element.releasePointerCapture(e.pointerId);
+        element.style.zIndex = '10';
+
+        const pieceRect = element.getBoundingClientRect();
+        const targetIndex = element.dataset.index;
+        const targetSlot = document.getElementById(`slot-${targetIndex}`);
+        const slotRect = targetSlot.getBoundingClientRect();
+
+        // Calcular distancia al centro de su casilla correcta
+        const pieceCenterX = pieceRect.left + pWidth / 2;
+        const pieceCenterY = pieceRect.top + pHeight / 2;
+        const slotCenterX = slotRect.left + pWidth / 2;
+        const slotCenterY = slotRect.top + pHeight / 2;
+
+        const distance = Math.hypot(pieceCenterX - slotCenterX, pieceCenterY - slotCenterY);
+        const snapThreshold = pWidth * 0.45; // Tolerancia de imán
+
+        if (distance < snapThreshold) {
+          // Encaje perfecto
+          boardGrid.appendChild(element);
+          element.style.position = 'absolute';
+          element.style.left = `${parseFloat(targetSlot.style.left)}px`;
+          element.style.top = `${parseFloat(targetSlot.style.top)}px`;
+          element.classList.add('placed');
+
+          placedCount++;
+          updatePiecesCounter();
+
+          if (placedCount === totalPieces) {
+            handleVictory();
+          }
+        } else {
+          // Devolver a la bandeja
+          element.style.position = 'relative';
+          element.style.left = 'auto';
+          element.style.top = 'auto';
+          piecesTray.appendChild(element);
+        }
+      };
+
+      element.addEventListener('pointerup', handlePointerEnd);
+      element.addEventListener('pointercancel', handlePointerEnd);
+    }
+
+    function handleVictory() {
+      if (typeof confetti === 'function') {
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      }
+      setTimeout(() => {
+        victoryModal.classList.remove('hidden');
+      }, 400);
+    }
+
+    // Inicializar al cargar
+    window.addEventListener('DOMContentLoaded', startPuzzle);
+  </script>
+</body>
+</html>
